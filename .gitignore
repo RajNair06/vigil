@@ -1,0 +1,24 @@
+# Byte-code files
+*.pyc
+__pycache__/
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Logs and other temporary files
+*.log
+.coverage
+
+# Editor/IDE-specific files
+.idea/
+.vscode/
+.DS_Store
+
+*.db
