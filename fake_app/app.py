@@ -1,15 +1,17 @@
-LOGFILE = '/logs/app.log'
-
+#LOGFILE = '/logs/app.log'
+from dotenv import load_dotenv
 import os
+from pathlib import Path
 import json
 import random
 import time
 import uuid
 from datetime import datetime
 
+load_dotenv()
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LOGFILE = os.path.join(parent_dir, "app.log")
-
+LOGFILE = os.getenv('LOGFILE_PATH')
+os.makedirs(os.path.dirname(Path(LOGFILE)),exist_ok=True)
 services = [
     "auth-service",
     "user-service",
@@ -92,6 +94,8 @@ def run_normal_traffic():
 
         with open(LOGFILE, "a") as f:
             f.write(json.dumps(log) + "\n")
+            from ..red_team import send_log_batch
+            send_log_batch([log])
 
         time.sleep(random.uniform(0.2, 2.0))
 

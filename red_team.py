@@ -1,6 +1,25 @@
 import json
-from fake_app.app import random_ip, generate_log, LOGFILE
+import os
 import random
+import requests
+from dotenv import load_dotenv
+from fake_app.app import random_ip, generate_log, LOGFILE
+
+load_dotenv()
+INGEST_URL = os.getenv("INGEST_URL")
+
+
+def send_log_batch(logs):
+    batch_string = "\n".join(json.dumps(log) for log in logs)
+
+    response = requests.post(
+        INGEST_URL,
+        data=batch_string,
+        headers={"Content-Type": "text/plain"}
+    )
+
+    print("Batch sent:", response.status_code)
+    print(response.text)
 
 
 def batch_write_log(logs):
@@ -11,31 +30,37 @@ def batch_write_log(logs):
 
 def ddos_attack(rps):
     logs = []
-    for i in range(rps):
+
+    for _ in range(rps):
+        log = generate_log()
+
         if random.random() < 0.9:
-            log=generate_log()
             log["status_code"] = 200
         else:
             log["status_code"] = random.choice([500, 502, 503])
+
         logs.append(log)
 
     batch_write_log(logs)
+    send_log_batch(logs)
+
 
 def brute_force(rps):
-    attacker_ip=random_ip()
-    logs=[]
-    for i in range(rps):
-        log=generate_log()
-        log['client_ip']=attacker_ip
+    attacker_ip = random_ip()
+    logs = []
+
+    for _ in range(rps):
+        log = generate_log()
+        log['client_ip'] = attacker_ip
         log["endpoint"] = "/api/login"
         log["status_code"] = random.choice([401, 401, 401, 403])
+
         logs.append(log)
+
     batch_write_log(logs)
+    send_log_batch(logs)
 
 
-
-brute_force(10)
-ddos_attack(10)
-
-
-
+if __name__ == "__main__":
+    brute_force(100)
+    ddos_attack(300)
