@@ -62,5 +62,5 @@ def brute_force(rps):
 
 
 if __name__ == "__main__":
-    brute_force(100)
-    ddos_attack(300)
+    brute_force(1000)
+    ddos_attack(3000)
