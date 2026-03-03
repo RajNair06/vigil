@@ -33,6 +33,7 @@ def ddos_attack(rps):
 
     for _ in range(rps):
         log = generate_log()
+        log["client_ip"]=random_ip()
 
         if random.random() < 0.9:
             log["status_code"] = 200
@@ -61,6 +62,33 @@ def brute_force(rps):
     send_log_batch(logs)
 
 
+def vulnerability_scan(rps):
+    logs=[]
+    for i in range(rps):
+        log=generate_log()
+        log["client_ip"]=random_ip()
+        log["endpoint"]=f"/api/test_endpoint_{i}"
+        log["status_code"]=random.choice([404, 404, 403, 400])
+        logs.append(log)
+
+    batch_write_log(logs)
+    send_log_batch(logs)
+
+def resource_exhaustion(rps):
+    logs=[]
+    for _ in range(rps):
+        log=generate_log()
+        log["client_ip"]=random.choice([random_ip() for _ in range(5)])
+        log["response_time_ms"]=random.randint(2500, 5000)
+        log["status_code"] = 200
+        logs.append(log)
+    batch_write_log(logs)
+    send_log_batch(logs)
+
+
+
 if __name__ == "__main__":
-    brute_force(1000)
-    ddos_attack(3000)
+    #brute_force(1000)
+    #ddos_attack(3000)
+    #vulnerability_scan(200)
+     resource_exhaustion(300)

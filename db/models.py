@@ -2,7 +2,7 @@ from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column,Integer,DateTime,String,Text,Float
 
 
-from datetime import datetime
+from datetime import datetime,timezone
 Base=declarative_base()
 class Log(Base):
 
@@ -47,4 +47,15 @@ class Feature(Base):
     avg_response_time = Column(Float)
     unique_endpoints=Column(Integer)
     unique_user_agents=Column(Integer)
+
+class Detection(Base):
+    __tablename__="detections"
+    id=Column(Integer,primary_key=True)
+    window_start=Column(DateTime)
+    window_end=Column(DateTime)
+    attack_type=Column(String)
+    severity=Column(String)
+    request_count=Column(Integer)
+    created_at=Column(DateTime,default=datetime.now(tz=timezone.utc))
+
 
