@@ -54,17 +54,7 @@ async def ingest_logs(request: Request,db:Session=Depends(get_db)):
         "logs_ingested": count
     }
 
-@app.post("/aggregate")
-def aggregate(db:Session=Depends(get_db)):
-    window_end=datetime.now(timezone.utc)
-    window_start=window_end-window_size
-    logs=fetch_logs(db,window_start,window_end)
-    feature_data=calculate_features(logs,window_start,window_end)
-    if feature_data:
-        store_features(db,feature_data)
-    return {
-        "status":"ok","logs_processed":len(logs)
-    }
+
 
 @app.get("/health")
 def health():
