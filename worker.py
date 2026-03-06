@@ -23,6 +23,9 @@ def run_aggregator():
                 run_detection(db)
         except Exception as e:
             print(e)
+            db.rollback()
+        finally:
+            db.close()
             
         time.sleep(sleep_interval)
 

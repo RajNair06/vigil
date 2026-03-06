@@ -2,6 +2,7 @@ from fastapi import FastAPI,Request,Depends,Query
 from typing import Optional
 from contextlib import asynccontextmanager
 import os
+from collections import defaultdict
 import time
 import threading
 from detector import run_detection
@@ -88,19 +89,39 @@ def get_stats(db:Session=Depends(get_db)):
     count_by_severity={severity:count for severity,count in severity_counts}
     attack_type_counts=db.query(Detection.attack_type,func.count(Detection.id)).filter(Detection.window_end>=last_24h).group_by(Detection.attack_type).all()
     count_by_attack_type={atype:count for atype,count in attack_type_counts}
+    
+
     peak_window=db.query(Detection).filter(Detection.window_end>=last_24h).order_by(Detection.request_count.desc()).first()
-    peak_detection_window= {
-        "window_start": peak_window.window_start,
-        "window_end": peak_window.window_end,
-        "request_count": peak_window.request_count,
-        "attack_type": peak_window.attack_type
-    }
+    if peak_window:
+    
+        peak_detection_window= {
+            "window_start": peak_window.window_start,
+            "window_end": peak_window.window_end,
+            "request_count": peak_window.request_count,
+            "attack_type": peak_window.attack_type
+        }
+    else:
+        peak_detection_window=None
     return {
         "total_last_24h": total_detections_24h,
         "count_by_severity": count_by_severity,
         "count_by_attack_type": count_by_attack_type,
         "peak_detection_window": peak_detection_window
     }
+
+
+@app.get('/detections/timeline')
+def get_timeline(db:Session=Depends(get_db)):
+    now=datetime.now(timezone.utc)
+    last_24h=now-timedelta(hours=24)
+    detections=db.query(Detection).filter(Detection.window_start>=last_24h).all()
+    timeline=defaultdict(int)
+    for d in detections:
+        minute=d.window_start.replace(second=0,microsecond=0)
+        timeline[minute]+=1
+    
+    timeline=[{"time":t,"detections":c} for t,c in sorted(timeline.items())]
+    return timeline
 
     
 
