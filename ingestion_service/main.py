@@ -1,7 +1,12 @@
-from fastapi import FastAPI,Request,Depends,Query
+import os
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = "/tmp/prometheus"
+from fastapi import FastAPI,Request,Depends,Query,Response
+from prometheus_client import generate_latest,CONTENT_TYPE_LATEST,CollectorRegistry
+from prometheus_client.multiprocess import MultiProcessCollector
+from metrics import logs_ingested_total
 from typing import Optional
 from contextlib import asynccontextmanager
-import os
+
 from collections import defaultdict
 import time
 import threading
@@ -18,6 +23,8 @@ from aggregation_utils import fetch_logs,calculate_features,store_features,windo
 load_dotenv()
 ingested_log_path=os.getenv('INGESTED_LOGFILE_PATH')
 os.makedirs(os.path.dirname(Path(ingested_log_path)),exist_ok=True)
+
+
 app=FastAPI()
 
 def write_log(log):
@@ -50,6 +57,7 @@ async def ingest_logs(request: Request,db:Session=Depends(get_db)):
         count += 1
     db.bulk_insert_mappings(Log,log_objects)
     db.commit()
+    logs_ingested_total.inc(count)
     return {
         "status": "ok",
         "logs_ingested": count
@@ -123,7 +131,12 @@ def get_timeline(db:Session=Depends(get_db)):
     timeline=[{"time":t,"detections":c} for t,c in sorted(timeline.items())]
     return timeline
 
-    
+@app.get("/metrics")
+def metrics():
+        registry=CollectorRegistry()
+        MultiProcessCollector(registry)
+        data=generate_latest(registry)
+        return Response(data,media_type=CONTENT_TYPE_LATEST)
 
 
 

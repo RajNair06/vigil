@@ -90,5 +90,5 @@ def resource_exhaustion(rps):
 if __name__ == "__main__":
     #brute_force(1000)
     #ddos_attack(3000)
-    #vulnerability_scan(200)
-     resource_exhaustion(300)
+    vulnerability_scan(200)
+    #resource_exhaustion(300)

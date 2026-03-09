@@ -1,6 +1,10 @@
+import os
+os.environ["PROMETHEUS_MULTIPROC_DIR"] = "/tmp/prometheus"
 from sqlalchemy.orm import Session
 from db.models import Feature,Detection
-import os
+
+from metrics import detections_total,detector_latency_seconds
+import time
 import json
 from pathlib import Path
 from dotenv import load_dotenv
@@ -63,15 +67,15 @@ def run_detection(db: Session):
     print("  unique_ips:", feature.unique_ips)
     print("  unique_endpoints:", feature.unique_endpoints)
     print("  avg_response_time:", feature.avg_response_time)
-
+    start=time.time()
     attack_type, severity = classify_attack(feature=feature)
-
+    detector_latency_seconds.observe(time.time()-start)
     print("Classification result:", attack_type, severity)
-
+    
     if not attack_type:
         print("No attack detected")
         return
-
+    detections_total.labels(attack_type=attack_type,severity=severity).inc()
     detection = Detection(
         window_start=feature.window_start,
         window_end=feature.window_end,
