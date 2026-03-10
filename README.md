@@ -1,8 +1,8 @@
-# Vigil 🛡️
+# Vigil 
 
 **Real-time log ingestion, feature aggregation, and attack detection system built with FastAPI.**
 
-Vigil continuously ingests HTTP access logs, aggregates them into time-windowed feature sets, and classifies attack patterns including DDoS, brute force, vulnerability scanning, and resource exhaustion — all queryable via REST API with Prometheus metrics.
+Vigil continuously ingests HTTP access logs, aggregates them into time-windowed feature sets, and classifies attack patterns using a two-stage detection pipeline: rule-based classification for known attack types (DDoS, brute force, vulnerability scanning, resource exhaustion) followed by statistical baseline anomaly detection for novel threats — all queryable via REST API with Prometheus metrics.
 
 ---
 
@@ -23,7 +23,7 @@ Vigil continuously ingests HTTP access logs, aggregates them into time-windowed 
 
 ```
                     ┌─────────────────┐
-   HTTP Logs ──────▶│  POST /ingest   │──▶ PostgreSQL / SQLite
+   HTTP Logs ──────▶│  POST /ingest   │──▶ SQLite / PostgreSQL
                     └─────────────────┘         │
                                                  │
                     ┌─────────────────┐          │
@@ -34,11 +34,22 @@ Vigil continuously ingests HTTP access logs, aggregates them into time-windowed 
                     │  - run detector │
                     └────────┬────────┘
                              │
-                    ┌────────▼────────┐
-                    │  detector.py    │──▶ detections table
-                    │  classify_attack│──▶ detection_logs.jsonl
-                    └─────────────────┘
-                    
+                    ┌────────▼────────────────────────────┐
+                    │  detector.py  (two-stage pipeline)  │
+                    │                                     │
+                    │  Stage 1: classify_attack()         │
+                    │  ├─ DDOS          (rule-based)      │
+                    │  ├─ BRUTE_FORCE   (rule-based)      │
+                    │  ├─ VULN_SCAN     (rule-based)      │
+                    │  └─ RESOURCE_EXHAUSTION             │
+                    │                                     │
+                    │  Stage 2: baseline_anomaly_detection│  ◀── baseline_detector.py
+                    │  └─ BASELINE_ANOMALY  (z-score)     │      (z-score on 100-window
+                    └──────────────┬──────────────────────┘       feature history)
+                                   │
+                                   ├──▶ detections table  (feature.is_attack = True)
+                                   └──▶ detection_logs.jsonl
+
    GET /detections, /detections/stats, /detections/timeline ──▶ Query detections
    GET /metrics ──▶ Prometheus scrape endpoint
 ```
@@ -49,31 +60,40 @@ Vigil continuously ingests HTTP access logs, aggregates them into time-windowed 
 
 ```
 vigil/
-├── main.py                   # FastAPI app — ingest + query endpoints
-├── worker.py                 # Background aggregation + detection loop
-├── detector.py               # Attack classification logic
-├── aggregation_utils.py      # Feature extraction from log windows
-├── metrics.py                # Prometheus counters, histograms, gauges
-├── red_team.py               # Simulated attack traffic generator
+├── main.py                    # FastAPI app — ingest + query endpoints
+├── worker.py                  # Background aggregation + detection loop
+├── detector.py                # Two-stage detection orchestrator
+├── baseline_detector.py       # Statistical anomaly detection (z-score)
+├── aggregation_utils.py       # Feature extraction from log windows
+├── metrics.py                 # Prometheus counters, histograms, gauges
+├── red_team.py                # Simulated attack traffic generator
+│
+├── ingestion_service/
+│   └── main.py                # Alternate entrypoint (mirrors main.py)
 │
 ├── db/
-│   ├── database.py           # SQLAlchemy engine + session
-│   ├── models.py             # Log, Feature, Detection ORM models
-│   └── init_db.py            # Schema initializer
+│   ├── database.py            # SQLAlchemy engine + session
+│   ├── models.py              # Log, Feature, Detection ORM models
+│   └── init_db.py             # Schema initializer
 │
 ├── fake_app/
-│   └── app.py                # Random log generator (baseline traffic)
+│   └── app.py                 # Random log generator (baseline traffic)
 │
 └── data/
-    ├── ingested_logs.jsonl   # Raw ingested log archive
-    └── detection_logs.jsonl  # Detection event log archive
+    ├── app_log.jsonl          # Application logs from fake_app
+    ├── ingested_logs.jsonl    # Raw ingested log archive
+    └── detection_logs.jsonl   # Detection event log archive
 ```
 
 ---
 
 ## Detection Logic
 
-The worker runs every **5 seconds**, aggregating logs from the current time window. Features are extracted and passed to `classify_attack()`:
+The worker runs every **5 seconds**, aggregating logs from the current time window into a `Feature` record. Detection runs in two stages:
+
+### Stage 1 — Rule-Based Classification (`detector.py`)
+
+Features are evaluated against hard-coded thresholds in `classify_attack()`. Rules are checked in priority order:
 
 | Attack Type          | Trigger Conditions                                                                 | Severity |
 |----------------------|------------------------------------------------------------------------------------|----------|
@@ -81,6 +101,24 @@ The worker runs every **5 seconds**, aggregating logs from the current time wind
 | `BRUTE_FORCE`        | `error_ratio > 0.6` AND `unique_ips < 20` AND `unique_endpoints < 5`              | HIGH     |
 | `VULNERABILITY_SCAN` | `unique_endpoints > 50` AND `unique_ips > 50`                                      | MEDIUM   |
 | `RESOURCE_EXHAUSTION`| `avg_response_time > 2000ms` AND `request_count > 200`                            | MEDIUM   |
+
+### Stage 2 — Statistical Baseline Detection (`baseline_detector.py`)
+
+If no rule matches, the feature is compared against historical **non-attack** windows using **z-score analysis**. This catches novel or low-and-slow attacks that don't trigger hard thresholds.
+
+| Parameter         | Value  | Description                                           |
+|-------------------|--------|-------------------------------------------------------|
+| History window    | 100    | Max past non-attack feature windows used as baseline  |
+| Minimum history   | 30     | Minimum samples required before baseline fires        |
+| Z-score threshold | 2.5    | Anomaly declared if `\|z\| > 2.5` on any metric      |
+
+**Features evaluated by z-score:**
+- `request_count`
+- `error_ratio`
+- `unique_ips`
+- `avg_response_time`
+
+If any single feature exceeds the z-score threshold, the window is flagged as `BASELINE_ANOMALY` with `MEDIUM` severity. Detected windows are marked `feature.is_attack = True` so they are excluded from future baseline calculations.
 
 ---
 
@@ -129,7 +167,7 @@ Returns recent detections with optional filters.
 
 | Parameter    | Type     | Description                                           |
 |--------------|----------|-------------------------------------------------------|
-| `attack_type`| string   | Filter by type: `DDOS`, `BRUTE_FORCE`, `VULNERABILITY_SCAN`, `RESOURCE_EXHAUSTION` |
+| `attack_type`| string   | Filter by type: `DDOS`, `BRUTE_FORCE`, `VULNERABILITY_SCAN`, `RESOURCE_EXHAUSTION`, `BASELINE_ANOMALY` |
 | `severity`   | string   | Filter by severity: `HIGH`, `MEDIUM`                  |
 | `start_time` | datetime | Filter detections at or after this time (ISO 8601)    |
 | `end_time`   | datetime | Filter detections at or before this time (ISO 8601)   |
@@ -229,6 +267,28 @@ Returns recent detections with optional filters.
 ]
 ```
 
+**Sample Output — `?attack_type=BASELINE_ANOMALY`**
+```json
+[
+  {
+    "id": 44,
+    "window_start": "2024-01-15T11:10:00+00:00",
+    "window_end": "2024-01-15T11:15:00+00:00",
+    "attack_type": "BASELINE_ANOMALY",
+    "severity": "MEDIUM",
+    "request_count": 87
+  },
+  {
+    "id": 39,
+    "window_start": "2024-01-15T08:40:00+00:00",
+    "window_end": "2024-01-15T08:45:00+00:00",
+    "attack_type": "BASELINE_ANOMALY",
+    "severity": "MEDIUM",
+    "request_count": 134
+  }
+]
+```
+
 ---
 
 ### `GET /detections/stats`
@@ -238,16 +298,17 @@ Returns aggregated detection statistics for the **last 24 hours**.
 **Response**
 ```json
 {
-  "total_last_24h": 14,
+  "total_last_24h": 16,
   "count_by_severity": {
     "HIGH": 9,
-    "MEDIUM": 5
+    "MEDIUM": 7
   },
   "count_by_attack_type": {
     "DDOS": 4,
     "BRUTE_FORCE": 5,
     "VULNERABILITY_SCAN": 3,
-    "RESOURCE_EXHAUSTION": 2
+    "RESOURCE_EXHAUSTION": 2,
+    "BASELINE_ANOMALY": 2
   },
   "peak_detection_window": {
     "window_start": "2024-01-15T10:25:00+00:00",
@@ -290,6 +351,8 @@ logs_ingested_total 48231.0
 detections_total{attack_type="DDOS",severity="HIGH"} 4.0
 detections_total{attack_type="BRUTE_FORCE",severity="HIGH"} 5.0
 detections_total{attack_type="VULNERABILITY_SCAN",severity="MEDIUM"} 3.0
+detections_total{attack_type="RESOURCE_EXHAUSTION",severity="MEDIUM"} 2.0
+detections_total{attack_type="BASELINE_ANOMALY",severity="MEDIUM"} 2.0
 
 # HELP detector_latency_seconds Detection execution latency
 # TYPE detector_latency_seconds histogram

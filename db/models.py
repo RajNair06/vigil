@@ -1,5 +1,5 @@
 from sqlalchemy.orm import declarative_base
-from sqlalchemy import Column,Integer,DateTime,String,Text,Float
+from sqlalchemy import Column,Integer,DateTime,String,Text,Float,Boolean
 
 
 from datetime import datetime,timezone
@@ -43,7 +43,7 @@ class Feature(Base):
     error_ratio = Column(Float)
 
     unique_ips = Column(Integer)
-
+    is_attack=Column(Boolean,default=False)
     avg_response_time = Column(Float)
     unique_endpoints=Column(Integer)
     unique_user_agents=Column(Integer)

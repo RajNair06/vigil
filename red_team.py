@@ -85,10 +85,22 @@ def resource_exhaustion(rps):
     batch_write_log(logs)
     send_log_batch(logs)
 
+def baseline_spike(rps):
+    logs=[]
+    for _ in range(rps):
+        log=generate_log()
+        log["client_ip"]=random.choice([random_ip() for _ in range(800)])
+        log["status_code"] = 200
+        log["response_time_ms"]=random.randint(150, 300)
+        logs.append(log)
+    batch_write_log(logs)
+    send_log_batch(logs)
+
 
 
 if __name__ == "__main__":
     #brute_force(1000)
     #ddos_attack(3000)
-    vulnerability_scan(200)
+    #vulnerability_scan(200)
     #resource_exhaustion(300)
+    baseline_spike(200)
